@@ -13,6 +13,8 @@ extern "C"
 {
 #endif
 
+#include <stddef.h>
+
 typedef struct cpeg_term cpeg_term;
 
 typedef struct cpeg_term_type {
