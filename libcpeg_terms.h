@@ -97,6 +97,12 @@ extern int cpeg_term_traverse_postorder(cpeg_term_traverse_fn fn,
                                         const cpeg_term *term,
                                         void *data);
 
+typedef int (*cpeg_term_zip_fn)(const cpeg_term *, const cpeg_term *, void *);
+
+extern int cpeg_term_zip(cpeg_term_zip_fn fn,
+                         const cpeg_term *term1, const cpeg_term *term2,
+                         void *data);
+
 typedef cpeg_term *(*cpeg_term_map_fn)(const cpeg_term *, void *);
 
 extern cpeg_term *cpeg_term_map(cpeg_term_map_fn map, const cpeg_term *term,
