@@ -57,3 +57,6 @@ dkms.conf
 *.gcda
 *.gcno
 *.gcov
+
+# Tests
+tests/*
