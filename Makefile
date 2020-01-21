@@ -58,5 +58,5 @@ clean:
 .PHONY : check
 
 check: $(TEST_APPS)
-	set -e; for e in $(TEST_APPS); do $(RUN) ./$$e; done
+	set -e; for e in $(TEST_APPS); do $(RUN) ./$$e $(TEST_RUN_FLAGS); done
 	$(GCOV) $(GCOV_FLAGS) $(TEST_OBJECTS)

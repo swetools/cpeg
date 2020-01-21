@@ -32,6 +32,22 @@ typedef struct cpeg_term {
     cpeg_term **children;
 } cpeg_term;
 
+#define CPEG_TERM_LEAF(_type, _value) \
+    (&(cpeg_term){.type = &(_type),   \
+            .refcnt = UINT_MAX,       \
+            .value = (_value),        \
+            .n_children = 0,          \
+            .children = NULL})
+
+#define CPEG_TERM_NODE(_type, _value, ...)              \
+    (&(cpeg_term){.type = &(_type),                     \
+            .refcnt = UINT_MAX,                         \
+            .value = (_value),                          \
+            .n_children =                               \
+            sizeof((cpeg_term *[]){__VA_ARGS__}) /      \
+            sizeof(cpeg_term *),                        \
+            .children = (cpeg_term *[]){__VA_ARGS__}})
+
 extern cpeg_term *cpeg_term_new(const cpeg_term_type *type,
                                 void *value, unsigned n_children,
                                 cpeg_term *children[]);
@@ -50,7 +66,7 @@ extern cpeg_term *cpeg_term_fromstrl(const cpeg_term_type *type,
 static inline cpeg_term *
 cpeg_term_use(cpeg_term *term)
 {
-    if (term != NULL)
+    if (term != NULL && term->refcnt != UINT_MAX)
         term->refcnt++;
     return term;
 }
@@ -60,9 +76,14 @@ extern void cpeg_term_reclaim(cpeg_term *term);
 static inline void
 cpeg_term_free(cpeg_term *term)
 {
-    if (term != NULL && term->refcnt-- <= 1)
+    if (term != NULL && term->refcnt != UINT_MAX &&
+        term->refcnt-- <= 1)
         cpeg_term_reclaim(term);
 }
+
+extern cpeg_term *cpeg_term_leftmost(cpeg_term *term);
+
+extern cpeg_term *cpeg_term_rightmost(cpeg_term *term);
 
 extern cpeg_term *cpeg_term_copy(const cpeg_term *term);
 

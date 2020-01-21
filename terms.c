@@ -51,7 +51,10 @@ cqc_generate_cpeg_term_ptr(cpeg_term_ptr *var, size_t scale)
 
 #define cqc_typefmt_cpeg_term_ptr "%s:%p[%p,%u]"
 #define cqc_typeargs_cpeg_term_ptr(_t) \
-    (_t)->type->id, (_t), (_t)->value, (_t)->n_children
+    ((_t) ? (_t)->type->id : "???"),   \
+        (_t),                          \
+        ((_t) ? (_t)->value : "???"),  \
+        ((_t) ? (_t)->n_children : 0)
 
 #define cqc_equal_cpeg_term_ptr(_v1, _v2) ((_v1) == (_v2))
 
@@ -136,6 +139,31 @@ CQC_TESTCASE(term_new_no_use,
                                 cqc_assert_eq(unsigned, t2->n_children, 1);
                                 cqc_assert_eq(cpeg_term_ptr, t2->children[0], t1))));
 
+CQC_TESTCASE(terms_reused,
+             "A reclaimed term is reused at the next allocation",
+             CQC_NO_CLASSES,
+             cqc_forall(cpeg_term_ptr, t,
+                        cqc_expect(
+                                uintptr_t oldv = (uintptr_t)t->value;
+                                cpeg_term *nt;
+                                cpeg_term_free(t);
+                                nt = cpeg_term_newl(&test_term_type,
+                                                    (void *)(oldv + 1),
+                                                    NULL);
+                                cqc_assert_eq(cpeg_term_ptr, t, nt);
+                                cqc_assert_eq(cqc_opaque, t->value,
+                                              (void *)(oldv + 1));
+                                cqc_assert_eq(unsigned, t->n_children, 0);
+                                cqc_assert_eq(cqc_opaque, t->children, NULL))));
+
+CQC_TESTCASE_SINGLE(test_static_term,
+                    "Statically declared terms are not refcounted",
+                    cqc_expect
+                    (cpeg_term *t = CPEG_TERM_LEAF(test_term_type, NULL);
+                     cpeg_term_use(t);
+                     cqc_assert_eq(unsigned, t->refcnt, UINT_MAX);
+                     cpeg_term_free(t);
+                     cqc_assert_eq(unsigned, t->refcnt, UINT_MAX)));
 #endif
 
 #define MAX_INLINE_CHILDREN 64
@@ -211,6 +239,48 @@ CQC_TESTCASE(term_destructor_called,
 #endif
 
 cpeg_term *
+cpeg_term_leftmost(cpeg_term *term)
+{
+    if (term == NULL)
+        return NULL;
+
+    while (term->n_children > 0)
+        term = term->children[0];
+
+    return term;
+}
+
+cpeg_term *
+cpeg_term_rightmost(cpeg_term *term)
+{
+    if (term == NULL)
+        return NULL;
+
+    while (term->n_children > 0)
+        term = term->children[term->n_children - 1];
+
+    return term;
+}
+
+#ifdef LIBCPEG_TESTING
+CQC_TESTCASE(term_leftmost_rightmost,
+             "If a term has a single child, its leftmost and rightmost "
+             "subterms are the same as those of its child",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_expect
+              (cpeg_term *nt = cpeg_term_newl(&test_term_type, NULL,
+                                              t, NULL);
+               cqc_assert_eq(cpeg_term_ptr,
+                             cpeg_term_leftmost(nt),
+                             cpeg_term_leftmost(t));
+               cqc_assert_eq(cpeg_term_ptr,
+                             cpeg_term_rightmost(nt),
+                             cpeg_term_rightmost(t)))));
+#endif
+
+cpeg_term *
 cpeg_term_copy(const cpeg_term *term)
 {
     if (term == NULL)
@@ -232,23 +302,17 @@ cpeg_term_copy(const cpeg_term *term)
 CQC_TESTCASE(term_copy_eq, "Shallow copying terms works", CQC_NO_CLASSES,
              cqc_forall(cpeg_term_ptr, t,
                         cqc_expect(cpeg_term *t1 = cpeg_term_copy(t);
-                                   unsigned i;
-                                   cqc_assert(t1 != NULL);
-                                   cqc_assert(t1 != t);
-                                   cqc_assert(t1->type == t->type);
-                                   cqc_assert(t1->value == t->value);
-                                   cqc_assert_eq(unsigned, t1->n_children, t->n_children);
+                                   cqc_assert_neq(cqc_opaque, t1, NULL);
+                                   cqc_assert_neq(cpeg_term_ptr, t1, t);
+                                   cqc_assert_eq(cqc_opaque, t1->type, t->type);
+                                   cqc_assert_eq(cqc_opaque, t1->value, t->value);
                                    cqc_assert_eq(unsigned, t1->refcnt, 1);
                                    cqc_assert_eq(unsigned, t->refcnt, 1);
-                                   for (i = 0; i < t1->n_children; i++)
-                                   {
-                                       cqc_assert_eq(cpeg_term_ptr,
-                                                     t1->children[i],
-                                                     t->children[i]);
-                                       cqc_assert_eq(unsigned,
-                                                     t1->children[i]->refcnt,
-                                                     2);
-                                   })));
+                                   cqc_assert_eqn(cpeg_term_ptr,
+                                                  t->n_children, t->children,
+                                                  t1->n_children, t1->children);
+                                   cqc_assert_eqfn(unsigned, t1->n_children,
+                                                   t1->children, ->refcnt, 2))));
 #endif
 
 cpeg_term *
@@ -289,12 +353,14 @@ equal_but_unshared(const cpeg_term *t1, const cpeg_term *t2,
 CQC_TESTCASE(test_deep_copy,
              "Deep copies do not have shared subterms",
              CQC_NO_CLASSES,
-             cqc_forall(cpeg_term_ptr, t,
-                        cqc_expect(cpeg_term *t1 = cpeg_term_deep_copy(t);
-                                   cqc_assert(t1 != NULL);
-                                   cqc_assert_eq(int,
-                                                 cpeg_term_zip(equal_but_unshared,
-                                                               t, t1, NULL), 0))));
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_expect
+              (cpeg_term *t1 = cpeg_term_deep_copy(t);
+               cqc_assert_neq(cpeg_term_ptr, t1, NULL);
+               cqc_assert_eq(int,
+                             cpeg_term_zip(equal_but_unshared,
+                                           t, t1, NULL), 0))));
 #endif
 
 cpeg_term *
@@ -321,6 +387,51 @@ cpeg_term_graft(cpeg_term *term, unsigned pos,
     return term;
 }
 
+#ifdef LIBCPEG_TESTING
+static int
+position_class(unsigned pos, unsigned n_children)
+{
+    if (pos == 0)
+        return 0;
+    if (pos >= n_children)
+        return 2;
+    return 1;
+}
+
+CQC_TESTCASE(test_graft,
+             "Grafting works",
+             CQC_CLASS_LIST("initial", "medial", "final"),
+             cqc_forall
+             (cpeg_term_ptr, t1,
+              cqc_forall
+              (cpeg_term_ptr, t2,
+               cqc_forall_range
+               (unsigned, n,
+                0, t1->n_children,
+                cqc_classify(position_class(n, t1->n_children),
+                             cqc_expect
+                             (cpeg_term *tc = cpeg_term_copy(t1);
+                              cpeg_term *t3 = cpeg_term_graft(t1, n, t2);
+                              cqc_assert_eq(cpeg_term_ptr, t3, t1);
+                              cqc_assert_eq(unsigned, t3->n_children,
+                                            tc->n_children + 1);
+                              cqc_assert_eq(cpeg_term_ptr, t3->children[n], t2);
+                              cqc_assert_eqn(cpeg_term_ptr, n, t3->children,
+                                             n, tc->children);
+                              cqc_assert_eq(unsigned, t2->refcnt, 1);
+                              cqc_assert_eqfn(unsigned, n,
+                                              t3->children, ->refcnt, 2);
+                              cqc_assert_eqn(cpeg_term_ptr,
+                                             tc->n_children - n,
+                                             &t3->children[n + 1],
+                                             tc->n_children - n,
+                                             &tc->children[n]);
+                              cqc_assert_eqfn(unsigned,
+                                              tc->n_children - n,
+                                              &t3->children[n + 1],
+                                              ->refcnt, 2)))))));
+#endif
+
 cpeg_term *
 cpeg_term_glue(cpeg_term *term,
                const cpeg_term *side)
@@ -340,6 +451,55 @@ cpeg_term_glue(cpeg_term *term,
     return term;
 }
 
+#ifdef LIBCPEG_TESTING
+
+CQC_TESTCASE(test_glue,
+             "Gluing works",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t1,
+              cqc_forall
+              (cpeg_term_ptr, t2,
+               cqc_expect
+               (cpeg_term *tc = cpeg_term_copy(t1);
+                cpeg_term *t3 = cpeg_term_glue(t1, t2);
+                cqc_assert_eq(cpeg_term_ptr, t3, t1);
+                cqc_assert_eq(unsigned, t3->n_children,
+                              tc->n_children + t2->n_children);
+                cqc_assert_eqn(cpeg_term_ptr,
+                               tc->n_children, tc->children,
+                               tc->n_children, t3->children);
+                cqc_assert_eqn(cpeg_term_ptr,
+                               t2->n_children, t2->children,
+                               t2->n_children, &t3->children[tc->n_children]);
+                cqc_assert_eqfn(unsigned,
+                                t3->n_children, t3->children, ->refcnt, 2)))));
+
+CQC_TESTCASE(glue_leftmost_rightmost,
+             "If two terms with children are glued, then the leftmost "
+             "subterm of the result is the leftmost one of the first term "
+             "and the rightmost subterm is the rightmost one of the "
+             "second term",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t1,
+              cqc_forall
+              (cpeg_term_ptr, t2,
+               cqc_condition_neq
+               (unsigned, t1->n_children, 0,
+                cqc_condition_neq
+                (unsigned, t2->n_children, 0,
+                 cqc_expect
+                 (cpeg_term *lm = cpeg_term_leftmost(t1);
+                  cpeg_term *rm = cpeg_term_rightmost(t2);
+                  cpeg_term *g = cpeg_term_glue(t1, t2);
+                  cqc_assert_eq(cpeg_term_ptr,
+                                cpeg_term_leftmost(g), lm);
+                  cqc_assert_eq(cpeg_term_ptr,
+                                cpeg_term_rightmost(g), rm)))))));
+
+#endif
+
 cpeg_term *
 cpeg_term_prune(cpeg_term *term, unsigned pos)
 {
@@ -356,6 +516,29 @@ cpeg_term_prune(cpeg_term *term, unsigned pos)
     return pruned;
 }
 
+#ifdef LIBCPEG_TESTING
+
+CQC_TESTCASE(test_prune,
+             "Pruning works",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_condition_neq
+              (unsigned, t->n_children, 0,
+               cqc_forall_range
+               (unsigned, pos, 0, t->n_children - 1,
+                cqc_expect
+                (cpeg_term *tc = cpeg_term_copy(t);
+                 cpeg_term *p = cpeg_term_prune(t, pos);
+                 cqc_assert_eq(cpeg_term_ptr, p, tc->children[pos]);
+                 cqc_assert_eq(unsigned, t->n_children, tc->n_children - 1);
+                 cqc_assert_eqn(cpeg_term_ptr, pos, tc->children,
+                                pos, t->children);
+                 cqc_assert_eqn(cpeg_term_ptr,
+                                t->n_children - pos, &tc->children[pos + 1],
+                                t->n_children - pos, &t->children[pos]);
+                 cqc_assert_eq(unsigned, p->refcnt, 2))))));
+#endif
 
 int
 cpeg_term_traverse_preorder(cpeg_term_traverse_fn fn,
@@ -395,6 +578,108 @@ cpeg_term_traverse_postorder(cpeg_term_traverse_fn fn,
 
     return fn(term, data);
 }
+
+#ifdef LIBCPEG_TESTING
+
+static int
+counting_fn(__attribute__ ((unused))
+            const cpeg_term *term, void *data)
+{
+    (*(unsigned *)data)++;
+    return 0;
+}
+
+CQC_TESTCASE(preorder_postorder_comm,
+             "If a traversing function only depends on the term value and/or "
+             "identity, not its structure, preorder and postorder yield "
+             "the same result",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_expect
+              (unsigned count1 = 0;
+               unsigned count2 = 0;
+               cqc_assert_eq(int, cpeg_term_traverse_preorder(counting_fn, t,
+                                                              &count1), 0);
+               cqc_assert_eq(int, cpeg_term_traverse_postorder(counting_fn, t,
+                                                               &count2), 0);
+               cqc_assert_eq(unsigned, count1, count2))));
+
+static int
+keep_value(const cpeg_term *term, void *data)
+{
+    *(void **)data = term->value;
+    return 0;
+}
+
+CQC_TESTCASE(postorder_executes_last,
+             "Postorder function is executed after the subtree traversal",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_expect
+              (void *v = NULL;
+               cqc_assert_eq(int, cpeg_term_traverse_postorder(keep_value, t,
+                                                               &v), 0);
+               cqc_assert_eq(cqc_opaque, v, t->value))));
+
+CQC_TESTCASE(preorder_executes_last,
+             "Preorder function is executed before the subtree traversal",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_expect
+              (void *v = NULL;
+               cqc_assert_eq(int, cpeg_term_traverse_preorder(keep_value, t,
+                                                              &v), 0);
+               cqc_assert_eq(cqc_opaque, v, cpeg_term_rightmost(t)->value))));
+
+static int
+check_and_keep_value(const cpeg_term *term, void *data)
+{
+    if (*(void **)data == term->value)
+        return 1;
+
+    *((void **)data) = term->value;
+    return 0;
+}
+
+
+CQC_TESTCASE(traverse_nonzero_preorder,
+             "Non-zero return from the function stops preorder traversal",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_forall
+              (cpeg_term_ptr, t1,
+               (cqc_condition_neq
+                (cqc_opaque, t1->value, t2->value,
+                 (cqc_expect
+                  (void *v = t1->value;
+                   cpeg_term_graft(t1, 0, t2);
+                   cqc_assert_eq(int,
+                                 cpeg_term_traverse_preorder
+                                 (check_and_keep_value, t, &v), 1);
+                   cqc_assert_eq(cqc_opaque, v, t1->value))))))));
+
+CQC_TESTCASE(traverse_nonzero_postorder,
+             "Non-zero return from the function stops preorder traversal",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t,
+              cqc_forall
+              (cpeg_term_ptr, t1,
+               (cqc_condition_neq
+                (cqc_opaque, t1->value, t2->value,
+                 (cqc_expect
+                  (void *v = t2->value;
+                   cpeg_term_graft(t1, 0, t2);
+                   cqc_assert_eq(int,
+                                 cpeg_term_traverse_postorder
+                                 (check_and_keep_value, t, &v), 1);
+                   cqc_assert_eq(cqc_opaque, v, t2->value))))))));
+
+#endif
 
 int
 cpeg_term_zip(cpeg_term_zip_fn fn,
