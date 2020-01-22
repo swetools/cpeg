@@ -453,6 +453,36 @@ cpeg_term_glue(cpeg_term *term,
 
 #ifdef LIBCPEG_TESTING
 
+CQC_TESTCASE(test_glue_with_empty,
+             "Gluing with a term with no children does not change the term",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t1,
+              cqc_expect
+              (cpeg_term *tc = cpeg_term_copy(t1);
+               cpeg_term *nt = cpeg_term_newl(&test_term_type, NULL, NULL);
+               cpeg_term *tg = cpeg_term_glue(t1, nt);
+               cqc_assert_eq(cpeg_term_ptr, tg, t1);
+               cqc_assert_eqn(cpeg_term_ptr,
+                              tc->n_children, tc->children,
+                              tg->n_children, tg->children))));
+
+
+CQC_TESTCASE(test_empty_glue_with_empty,
+             "Gluing a term with no children takes all the children "
+             "of the second term",
+             CQC_NO_CLASSES,
+             cqc_forall
+             (cpeg_term_ptr, t1,
+              cqc_expect
+              (cpeg_term *nt = cpeg_term_newl(&test_term_type, NULL, NULL);
+               cpeg_term *tg = cpeg_term_glue(nt, t1);
+               cqc_assert_eq(cpeg_term_ptr, tg, nt);
+               cqc_assert_eq(cqc_opaque, tg->value, NULL);
+               cqc_assert_eqn(cpeg_term_ptr,
+                              t1->n_children, t1->children,
+                              tg->n_children, tg->children))));
+
 CQC_TESTCASE(test_glue,
              "Gluing works",
              CQC_NO_CLASSES,
@@ -635,12 +665,12 @@ CQC_TESTCASE(preorder_executes_last,
                cqc_assert_eq(cqc_opaque, v, cpeg_term_rightmost(t)->value))));
 
 static int
-check_and_keep_value(const cpeg_term *term, void *data)
+check_and_store_value(const cpeg_term *term, void *data)
 {
-    if (*(void **)data == term->value)
+    if (((void **)data)[0] == term->value)
         return 1;
 
-    *((void **)data) = term->value;
+    ((void **)data)[1] = term->value;
     return 0;
 }
 
@@ -652,34 +682,73 @@ CQC_TESTCASE(traverse_nonzero_preorder,
              (cpeg_term_ptr, t,
               cqc_forall
               (cpeg_term_ptr, t1,
-               (cqc_condition_neq
-                (cqc_opaque, t1->value, t2->value,
-                 (cqc_expect
-                  (void *v = t1->value;
-                   cpeg_term_graft(t1, 0, t2);
-                   cqc_assert_eq(int,
-                                 cpeg_term_traverse_preorder
-                                 (check_and_keep_value, t, &v), 1);
-                   cqc_assert_eq(cqc_opaque, v, t1->value))))))));
+               cqc_condition_neq
+               (cqc_opaque, t1->value, t->value,
+                cqc_expect
+                (void *v[2];
+                 v[0] = t1->value;
+                 v[1] = NULL;
+                 cpeg_term_graft(t1, 0, t);
+                 cqc_assert_eq(int,
+                               cpeg_term_traverse_preorder
+                               (check_and_store_value, t1, v), 1);
+                 cqc_assert_eq(cqc_opaque, v[1], NULL);
+                 v[0] = t->value;
+                 cqc_assert_eq(int,
+                               cpeg_term_traverse_preorder
+                               (check_and_store_value, t1, v), 1);
+                 cqc_assert_eq(cqc_opaque, v[1], t1->value))))));
 
 CQC_TESTCASE(traverse_nonzero_postorder,
-             "Non-zero return from the function stops preorder traversal",
+             "Non-zero return from the function stops postorder traversal",
              CQC_NO_CLASSES,
              cqc_forall
              (cpeg_term_ptr, t,
               cqc_forall
               (cpeg_term_ptr, t1,
-               (cqc_condition_neq
-                (cqc_opaque, t1->value, t2->value,
-                 (cqc_expect
-                  (void *v = t2->value;
-                   cpeg_term_graft(t1, 0, t2);
-                   cqc_assert_eq(int,
-                                 cpeg_term_traverse_postorder
-                                 (check_and_keep_value, t, &v), 1);
-                   cqc_assert_eq(cqc_opaque, v, t2->value))))))));
+               cqc_condition_neq
+               (cqc_opaque, t1->value, t->value,
+                cqc_expect
+                (void *v[2];
+                 v[0] = t1->value;
+                 v[1] = NULL;
+                 cpeg_term_graft(t1, UINT_MAX, t);
+                 cqc_assert_eq(int,
+                               cpeg_term_traverse_postorder
+                               (check_and_store_value, t1, v), 1);
+                 cqc_assert_eq(cqc_opaque, v[1], t->value);
+                 v[0] = t->value;
+                 cqc_assert_eq(int,
+                               cpeg_term_traverse_postorder
+                               (check_and_store_value, t1, v), 1);
+                 cqc_condition_neq
+                 (unsigned, t->n_children, 0,
+                  cqc_assert_eq(cqc_opaque,
+                                v[1],
+                                t->children[t->n_children - 1]->value)))))));
 
 #endif
+
+bool
+cpeg_term_isomorphic(const cpeg_term *term1, const cpeg_term *term2)
+{
+    unsigned i;
+
+    if (term1 == NULL)
+        return term2 == NULL;
+    if (term2 == NULL)
+        return false;
+
+    if (term1->n_children != term2->n_children)
+        return false;
+
+    for (i = 0; i < term1->n_children; i++)
+    {
+        if (!cpeg_term_isomorphic(term1->children[i], term2->children[i]))
+            return false;
+    }
+    return true;
+}
 
 int
 cpeg_term_zip(cpeg_term_zip_fn fn,

@@ -118,6 +118,8 @@ extern int cpeg_term_traverse_postorder(cpeg_term_traverse_fn fn,
                                         const cpeg_term *term,
                                         void *data);
 
+extern bool cpeg_term_isomorphic(const cpeg_term *term1, const cpeg_term *term2);
+
 typedef int (*cpeg_term_zip_fn)(const cpeg_term *, const cpeg_term *, void *);
 
 extern int cpeg_term_zip(cpeg_term_zip_fn fn,
