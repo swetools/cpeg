@@ -13,6 +13,7 @@ extern "C"
 {
 #endif
 
+#include "libcpeg_memattr.h"
 #include "libcpeg_terms.h"
 
 #ifdef __cplusplus

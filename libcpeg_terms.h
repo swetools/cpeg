@@ -13,6 +13,8 @@ extern "C"
 {
 #endif
 
+#include <limits.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 typedef struct cpeg_term cpeg_term;
@@ -78,7 +80,9 @@ cpeg_term_free(cpeg_term *term)
 {
     if (term != NULL && term->refcnt != UINT_MAX &&
         term->refcnt-- <= 1)
+    {
         cpeg_term_reclaim(term);
+    }
 }
 
 extern cpeg_term *cpeg_term_leftmost(cpeg_term *term);

@@ -4,6 +4,7 @@
 #include <limits.h>
 #include <string.h>
 #include <assert.h>
+#include "libcpeg_memattr.h"
 #include "libcpeg_terms.h"
 #ifdef LIBCPEG_TESTING
 #include "cqc.h"
@@ -85,7 +86,7 @@ alloc_term(const cpeg_term_type *type)
         term_free_list = term_free_list->value;
     else
     {
-        term = malloc(sizeof(*term));
+        term = cpeg_mem_alloc(sizeof(*term));
         assert(term != NULL);
     }
     term->type   = type;
@@ -103,7 +104,7 @@ alloc_children(cpeg_term *term, unsigned n_children,
     if (n_children == 0)
         term->children = NULL;
     else
-        term->children = malloc(n_children * sizeof(*term->children));
+        term->children = cpeg_mem_alloc(n_children * sizeof(*term->children));
 
     for (i = 0; i < n_children; i++)
         term->children[i] = share ? cpeg_term_use(children[i]) : children[i];
@@ -222,7 +223,8 @@ cpeg_term_reclaim(cpeg_term *term)
         term->type->destroy(term->value);
     for (i = 0; i < term->n_children; i++)
         cpeg_term_free(term->children[i]);
-    free(term->children);
+    cpeg_mem_free(term->children);
+    cpeg_mem_release_attrs(term);
     term->value = term_free_list;
     term_free_list = term;
 }
@@ -373,15 +375,16 @@ cpeg_term_graft(cpeg_term *term, unsigned pos,
         pos = term->n_children;
     assert(pos <= term->n_children);
 
-    new_children = malloc(sizeof(*new_children) * (term->n_children + 1));
+    new_children = cpeg_mem_realloc(term->children,
+                                    sizeof(*new_children) *
+                                    (term->n_children + 1));
     assert(new_children != NULL);
 
-    memcpy(new_children, term->children, sizeof(*term->children) * pos);
+    memmove(&new_children[pos + 1], &new_children[pos],
+            sizeof(*term->children) * (term->n_children - pos));
     new_children[pos] = child;
-    memcpy(&new_children[pos + 1], &term->children[pos],
-           sizeof(*term->children) * (term->n_children - pos));
+
     term->n_children++;
-    free(term->children);
     term->children = new_children;
 
     return term;
@@ -441,9 +444,9 @@ cpeg_term_glue(cpeg_term *term,
     if (side == NULL || side->n_children == 0)
         return term;
 
-    term->children = realloc(term->children,
-                             sizeof(*term->children) *
-                             (term->n_children + side->n_children));
+    term->children = cpeg_mem_realloc(term->children,
+                                      sizeof(*term->children) *
+                                      (term->n_children + side->n_children));
     for (i = 0; i < side->n_children; i++)
         term->children[i + term->n_children] = cpeg_term_use(side->children[i]);
     term->n_children += side->n_children;

@@ -21,9 +21,9 @@ GCOV_FLAGS =
 
 all : libcpeg.a
 
-SOURCES = terms.c
+SOURCES = terms.c memattr.c
 
-HEADERS = libcpeg.h libcpeg_terms.h
+HEADERS = libcpeg.h libcpeg_terms.h libcpeg_memattr.h
 
 OBJECTS = $(SOURCES:.c=.o)
 
@@ -38,11 +38,16 @@ tests/%.tst.o : %.c
 	$(CC) -c -o $@ $(TEST_CPPFLAGS) $(CPPFLAGS) $(TEST_CFLAGS) $(CFLAGS) $<
 
 tests/% : tests/%.tst.o
-	$(CC) -o $@ $(TEST_CFLAGS) $(CFLAGS) $(TEST_LDFLAGS) $(LDFLAGS) $^
+	$(CC) -o $@ $(TEST_CFLAGS) $(CFLAGS) $(filter %.o,$^) \
+				$(TEST_LDFLAGS) $(LDFLAGS)
 
 $(OBJECTS) $(TEST_OBJECTS) : $(HEADERS) Makefile
 
 $(TEST_OBJECTS) : $(CQC_INCLUDE)/cqc.h
+
+tests/terms : memattr.o
+
+tests/memattr : terms.o
 
 .PHONY : clean
 
