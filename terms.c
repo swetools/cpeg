@@ -48,7 +48,7 @@ cqc_generate_cpeg_term_ptr(cpeg_term_ptr *var, size_t scale)
                          n_children, children);
 }
 
-#define cqc_release_cpeg_term_ptr(_var) cpeg_term_free(*(_var))
+#define cqc_release_cpeg_term_ptr(_var) cpeg_term_free(_var)
 
 #define cqc_typefmt_cpeg_term_ptr "%s:%p[%p,%u]"
 #define cqc_typeargs_cpeg_term_ptr(_t) \
@@ -123,48 +123,72 @@ cpeg_term_new(const cpeg_term_type *type, void *value,
 }
 
 #ifdef LIBCPEG_TESTING
-CQC_TESTCASE(term_new, "Any term is valid",  CQC_NO_CLASSES,
-             cqc_forall(cpeg_term_ptr, t,
-                        cqc_expect(cpeg_term_validate(t))));
+CQC_TESTCASE(term_new, "Any term is valid")
+{
+    cqc_forall(cpeg_term_ptr, t)
+    {
+        cqc_expect
+        {
+            cpeg_term_validate(t);
+        }
+    }
+}
+
 
 CQC_TESTCASE(term_new_no_use,
-             "Term construction does not automatically increment refcounters",
-             CQC_NO_CLASSES,
-             cqc_forall(cpeg_term_ptr, t1,
-                        cqc_expect(
-                                cpeg_term_ptr t2 =
-                                cpeg_term_newl(&test_term_type,
-                                               NULL,
-                                               t1, NULL);
-                                cqc_assert_eq(unsigned, t1->refcnt, 1);
-                                cqc_assert_eq(unsigned, t2->n_children, 1);
-                                cqc_assert_eq(cpeg_term_ptr, t2->children[0], t1))));
+             "Term construction does not automatically increment refcounters")
+{
+    cqc_forall(cpeg_term_ptr, t1)
+    {
+        cqc_expect
+        {
+            cpeg_term_ptr t2 = cpeg_term_newl(&test_term_type, NULL,
+                                              t1, NULL);
+            cqc_assert_eq(unsigned, t1->refcnt, 1);
+            cqc_assert_eq(unsigned, t2->n_children, 1);
+            cqc_assert_eq(cpeg_term_ptr, t2->children[0], t1);
+        }
+    }
+}
+
 
 CQC_TESTCASE(terms_reused,
-             "A reclaimed term is reused at the next allocation",
-             CQC_NO_CLASSES,
-             cqc_forall(cpeg_term_ptr, t,
-                        cqc_expect(
-                                uintptr_t oldv = (uintptr_t)t->value;
-                                cpeg_term *nt;
-                                cpeg_term_free(t);
-                                nt = cpeg_term_newl(&test_term_type,
-                                                    (void *)(oldv + 1),
-                                                    NULL);
-                                cqc_assert_eq(cpeg_term_ptr, t, nt);
-                                cqc_assert_eq(cqc_opaque, t->value,
-                                              (void *)(oldv + 1));
-                                cqc_assert_eq(unsigned, t->n_children, 0);
-                                cqc_assert_eq(cqc_opaque, t->children, NULL))));
+             "A reclaimed term is reused at the next allocation")
+{
+    cqc_forall(cpeg_term_ptr, t)
+    {
+        cqc_expect
+        {
+            uintptr_t oldv = (uintptr_t)t->value;
+            cpeg_term *nt;
+            cpeg_term_free(t);
+            nt = cpeg_term_newl(&test_term_type, (void *)(oldv + 1), NULL);
+            cqc_assert_eq(cpeg_term_ptr, t, nt);
+            cqc_assert_eq(cqc_opaque, t->value, (void *)(oldv + 1));
+            cqc_assert_eq(unsigned, t->n_children, 0);
+            cqc_assert_eq(cqc_opaque, t->children, NULL);
+        }
+    }
+}
 
-CQC_TESTCASE_SINGLE(test_static_term,
-                    "Statically declared terms are not refcounted",
-                    cqc_expect
-                    (cpeg_term *t = CPEG_TERM_LEAF(test_term_type, NULL);
-                     cpeg_term_use(t);
-                     cqc_assert_eq(unsigned, t->refcnt, UINT_MAX);
-                     cpeg_term_free(t);
-                     cqc_assert_eq(unsigned, t->refcnt, UINT_MAX)));
+
+CQC_TESTCASE(test_static_term,
+             "Statically declared terms are not refcounted")
+{
+    cqc_once
+    {
+        cqc_expect
+        {
+            cpeg_term *t = CPEG_TERM_LEAF(test_term_type, NULL);
+            cpeg_term_use(t);
+            cqc_assert_eq(unsigned, t->refcnt, UINT_MAX);
+            cpeg_term_free(t);
+            cqc_assert_eq(unsigned, t->refcnt, UINT_MAX);
+        }
+    }
+}
+
+#undef LIBCPEG_TESTING
 #endif
 
 #define MAX_INLINE_CHILDREN 64
